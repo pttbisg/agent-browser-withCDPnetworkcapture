@@ -270,4 +270,4 @@ agent-browser is visible ".modal" --json
 
 ## License
 
-MIT
+Apache-2.0

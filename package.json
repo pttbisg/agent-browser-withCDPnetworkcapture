@@ -26,7 +26,7 @@
     "agent"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "playwright": "^1.40.0",
     "zod": "^3.22.4"
