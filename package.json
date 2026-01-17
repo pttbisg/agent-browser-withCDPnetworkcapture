@@ -1,6 +1,6 @@
 {
   "name": "agent-browser-cdpnetwork",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Headless browser automation CLI for AI agents with CDP network capture",
   "type": "module",
   "main": "dist/daemon.js",
