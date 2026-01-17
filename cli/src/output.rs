@@ -174,6 +174,157 @@ pub fn print_response(resp: &Response, json_mode: bool) {
             println!("\x1b[32m✓\x1b[0m Screenshot saved to {}", path);
             return;
         }
+        // Network capture enabled/disabled
+        if let Some(enabled) = data.get("enabled").and_then(|v| v.as_bool()) {
+            if enabled {
+                println!("\x1b[32m✓\x1b[0m Network capture enabled");
+                return;
+            }
+        }
+        if let Some(disabled) = data.get("disabled").and_then(|v| v.as_bool()) {
+            if disabled {
+                println!("\x1b[32m✓\x1b[0m Network capture disabled");
+                return;
+            }
+        }
+        // Network cleared
+        if let Some(cleared) = data.get("cleared").and_then(|v| v.as_bool()) {
+            if cleared {
+                println!("\x1b[32m✓\x1b[0m Network entries cleared");
+                return;
+            }
+        }
+        // Network list (entries array)
+        if let Some(entries) = data.get("entries").and_then(|v| v.as_array()) {
+            if let Some(count) = data.get("count").and_then(|v| v.as_i64()) {
+                println!("\x1b[36m{} entries captured\x1b[0m", count);
+            }
+            for entry in entries {
+                let method = entry.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
+                let url = entry.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let status = entry.get("status").and_then(|v| v.as_i64());
+                let request_id = entry.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+                let resource_type = entry.get("resourceType").and_then(|v| v.as_str()).unwrap_or("");
+
+                // Status color
+                let status_str = if let Some(s) = status {
+                    let color = if s >= 200 && s < 300 {
+                        "\x1b[32m" // green
+                    } else if s >= 300 && s < 400 {
+                        "\x1b[33m" // yellow
+                    } else if s >= 400 {
+                        "\x1b[31m" // red
+                    } else {
+                        "\x1b[0m"
+                    };
+                    format!("{}{}\x1b[0m", color, s)
+                } else {
+                    "\x1b[2m---\x1b[0m".to_string()
+                };
+
+                // Truncate URL if too long
+                let display_url = if url.len() > 60 {
+                    format!("{}...", &url[..57])
+                } else {
+                    url.to_string()
+                };
+
+                println!("\x1b[2m{}\x1b[0m {} \x1b[1m{:7}\x1b[0m {} \x1b[2m[{}]\x1b[0m",
+                    request_id, status_str, method, display_url, resource_type);
+            }
+            return;
+        }
+        // Network get (request details)
+        if let Some(request) = data.get("request") {
+            println!("\x1b[1m=== Request ===\x1b[0m");
+            if let Some(method) = request.get("method").and_then(|v| v.as_str()) {
+                println!("Method: {}", method);
+            }
+            if let Some(url) = request.get("url").and_then(|v| v.as_str()) {
+                println!("URL: {}", url);
+            }
+            if let Some(headers) = request.get("headers").and_then(|v| v.as_object()) {
+                println!("Headers:");
+                for (k, v) in headers {
+                    println!("  {}: {}", k, v.as_str().unwrap_or(""));
+                }
+            }
+            if let Some(post_data) = request.get("postData").and_then(|v| v.as_str()) {
+                println!("Body: {}", post_data);
+            }
+
+            if let Some(response) = data.get("response") {
+                println!("\n\x1b[1m=== Response ===\x1b[0m");
+                if let Some(status) = response.get("status").and_then(|v| v.as_i64()) {
+                    let status_text = response.get("statusText").and_then(|v| v.as_str()).unwrap_or("");
+                    println!("Status: {} {}", status, status_text);
+                }
+                if let Some(mime) = response.get("mimeType").and_then(|v| v.as_str()) {
+                    println!("Content-Type: {}", mime);
+                }
+                if let Some(headers) = response.get("headers").and_then(|v| v.as_object()) {
+                    println!("Headers:");
+                    for (k, v) in headers {
+                        println!("  {}: {}", k, v.as_str().unwrap_or(""));
+                    }
+                }
+            }
+            return;
+        }
+        // Network body
+        if let Some(body) = data.get("body").and_then(|v| v.as_str()) {
+            println!("{}", body);
+            return;
+        }
+        // Network search results
+        if let Some(results) = data.get("results").and_then(|v| v.as_array()) {
+            if let Some(count) = data.get("count").and_then(|v| v.as_i64()) {
+                println!("\x1b[36m{} matches found\x1b[0m", count);
+            }
+            for result in results {
+                let request_id = result.get("requestId").and_then(|v| v.as_str()).unwrap_or("");
+                let method = result.get("method").and_then(|v| v.as_str()).unwrap_or("GET");
+                let url = result.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let status = result.get("status").and_then(|v| v.as_i64());
+                let matches = result.get("matches").and_then(|v| v.as_array());
+
+                let status_str = status.map(|s| s.to_string()).unwrap_or("-".to_string());
+                println!("\n\x1b[2m{}\x1b[0m {} \x1b[1m{}\x1b[0m {}", request_id, status_str, method, url);
+
+                if let Some(m) = matches {
+                    for match_item in m {
+                        if let Some(s) = match_item.as_str() {
+                            println!("  \x1b[33m→\x1b[0m {}", s);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // Network fetch result (has status and statusText)
+        if data.get("status").is_some() && data.get("statusText").is_some() {
+            let status = data.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
+            let status_text = data.get("statusText").and_then(|v| v.as_str()).unwrap_or("");
+            let color = if status >= 200 && status < 300 {
+                "\x1b[32m"
+            } else if status >= 300 && status < 400 {
+                "\x1b[33m"
+            } else {
+                "\x1b[31m"
+            };
+            println!("{}HTTP {} {}\x1b[0m", color, status, status_text);
+
+            if let Some(headers) = data.get("headers").and_then(|v| v.as_object()) {
+                for (k, v) in headers {
+                    println!("\x1b[2m{}: {}\x1b[0m", k, v.as_str().unwrap_or(""));
+                }
+            }
+            println!();
+            if let Some(body) = data.get("body").and_then(|v| v.as_str()) {
+                println!("{}", body);
+            }
+            return;
+        }
         // Default success
         println!("\x1b[32m✓\x1b[0m Done");
     }
@@ -818,18 +969,37 @@ Examples:
 
         // === Network ===
         "network" => r##"
-agent-browser network - Network interception and monitoring
+agent-browser network - Network interception, monitoring, and capture
 
 Usage: agent-browser network <subcommand> [args]
 
-Intercept, mock, or monitor network requests.
+Intercept, mock, capture, or monitor network requests.
 
-Subcommands:
+CDP Network Capture (full traffic with response bodies):
+  capture start              Enable CDP network capture
+  capture stop               Disable CDP network capture
+  list [options]             List captured traffic (requires capture start)
+    --url <pattern>          Filter by URL pattern
+    --method <method>        Filter by HTTP method
+    --status <code>          Filter by status code
+    --type <type>            Filter by resource type
+    --limit <n>              Limit results
+  get <requestId>            Get full details for a request
+  body <requestId>           Get response body for a request
+  search <pattern>           Search traffic by pattern
+    --in-body                Also search in response bodies
+  fetch <url> [options]      Make request using browser's session/cookies
+    --method, -m <method>    HTTP method (default: GET)
+    --headers, -H <json>     Request headers as JSON
+    --body, -d <data>        Request body
+  clear                      Clear captured traffic
+
+Playwright Interception (for mocking/blocking):
   route <url> [options]      Intercept requests matching URL pattern
     --abort                  Abort matching requests
     --body <json>            Respond with custom body
   unroute [url]              Remove route (all if no URL)
-  requests [options]         List captured requests
+  requests [options]         List basic request log (Playwright-based)
     --clear                  Clear request log
     --filter <pattern>       Filter by URL pattern
 
@@ -838,12 +1008,23 @@ Global Options:
   --session <name>     Use specific session
 
 Examples:
+  # CDP capture (full traffic with bodies)
+  agent-browser network capture start
+  agent-browser open https://example.com
+  agent-browser network list
+  agent-browser network list --status 200 --method GET
+  agent-browser network get 12345.1
+  agent-browser network body 12345.1
+  agent-browser network search "api"
+  agent-browser network fetch https://api.example.com/me
+  agent-browser network fetch https://api.example.com/data -m POST -d '{"query":"test"}'
+  agent-browser network clear
+  agent-browser network capture stop
+
+  # Playwright interception (mocking)
   agent-browser network route "**/api/*" --abort
   agent-browser network route "**/data.json" --body '{"mock": true}'
   agent-browser network unroute
-  agent-browser network requests
-  agent-browser network requests --filter "api"
-  agent-browser network requests --clear
 "##,
 
         // === Storage ===
@@ -1226,6 +1407,13 @@ Browser Settings:  agent-browser set <setting> [value]
   media [dark|light] [reduced-motion]
 
 Network:  agent-browser network <action>
+  capture start|stop         Enable/disable CDP traffic capture
+  list [--url|--method|...]  List captured traffic with filters
+  get <requestId>            Get full request/response details
+  body <requestId>           Get response body
+  search <pattern>           Search traffic
+  fetch <url> [opts]         Make request with browser session
+  clear                      Clear captured traffic
   route <url> [--abort|--body <json>]
   unroute [url]
   requests [--clear] [--filter <pattern>]

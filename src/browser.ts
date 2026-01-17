@@ -17,7 +17,15 @@ import {
 import path from 'node:path';
 import os from 'node:os';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import type { LaunchCommand } from './types.js';
+import type {
+  LaunchCommand,
+  NetworkEntry,
+  CapturedRequest,
+  CapturedResponse,
+  NetworkListFilters,
+  BrowserFetchOptions,
+  BrowserFetchResult,
+} from './types.js';
 import { type RefMap, type EnhancedSnapshot, getEnhancedSnapshot, parseRef } from './snapshot.js';
 
 // Screencast frame data from CDP
@@ -96,6 +104,14 @@ export class BrowserManager {
   private recordingPage: Page | null = null;
   private recordingOutputPath: string = '';
   private recordingTempDir: string = '';
+
+  // Network capture (CDP Network domain)
+  private networkEntries: Map<string, NetworkEntry> = new Map();
+  private networkCaptureEnabled: boolean = false;
+  private networkRequestHandler: ((params: any) => void) | null = null;
+  private networkResponseHandler: ((params: any) => void) | null = null;
+  private networkLoadingFinishedHandler: ((params: any) => void) | null = null;
+  private networkLoadingFailedHandler: ((params: any) => void) | null = null;
 
   /**
    * Check if browser is launched
@@ -945,6 +961,7 @@ export class BrowserManager {
   /**
    * Get or create a CDP session for the current page
    * Only works with Chromium-based browsers
+   * Re-enables network capture if it was previously active
    */
   async getCDPSession(): Promise<CDPSession> {
     if (this.cdpSession) {
@@ -956,6 +973,12 @@ export class BrowserManager {
 
     // Create a new CDP session attached to the page
     this.cdpSession = await context.newCDPSession(page);
+
+    // Re-enable network capture if it was active (handlers are page-specific)
+    if (this.networkCaptureEnabled) {
+      await this.setupNetworkCaptureHandlers(this.cdpSession);
+    }
+
     return this.cdpSession;
   }
 
@@ -1351,6 +1374,11 @@ export class BrowserManager {
       await this.stopScreencast();
     }
 
+    // Stop network capture if active
+    if (this.networkCaptureEnabled) {
+      await this.disableNetworkCapture();
+    }
+
     // Clean up CDP session
     if (this.cdpSession) {
       await this.cdpSession.detach().catch(() => {});
@@ -1385,5 +1413,321 @@ export class BrowserManager {
     this.refMap = {};
     this.lastSnapshot = '';
     this.frameCallback = null;
+    this.networkEntries.clear();
+  }
+
+  // ===== Network Capture Methods (CDP Network Domain) =====
+
+  /**
+   * Check if network capture is enabled
+   */
+  isNetworkCaptureEnabled(): boolean {
+    return this.networkCaptureEnabled;
+  }
+
+  /**
+   * Enable network capture via CDP Network domain
+   */
+  async enableNetworkCapture(): Promise<void> {
+    if (this.networkCaptureEnabled) {
+      return; // Already enabled
+    }
+
+    const cdp = await this.getCDPSession();
+    await this.setupNetworkCaptureHandlers(cdp);
+    this.networkCaptureEnabled = true;
+  }
+
+  /**
+   * Set up CDP Network domain event handlers
+   */
+  private async setupNetworkCaptureHandlers(cdp: CDPSession): Promise<void> {
+    // Enable Network domain with post data capture
+    await cdp.send('Network.enable', { maxPostDataSize: 65536 });
+
+    // Handler for Network.requestWillBeSent
+    this.networkRequestHandler = (params: any) => {
+      const request: CapturedRequest = {
+        requestId: params.requestId,
+        url: params.request.url,
+        method: params.request.method,
+        headers: params.request.headers || {},
+        postData: params.request.postData,
+        timestamp: params.timestamp * 1000, // Convert to ms
+        resourceType: params.type || 'Other',
+        initiator: params.initiator
+          ? {
+              type: params.initiator.type,
+              url: params.initiator.url,
+              lineNumber: params.initiator.lineNumber,
+            }
+          : undefined,
+      };
+
+      this.networkEntries.set(params.requestId, {
+        request,
+        completed: false,
+      });
+    };
+
+    // Handler for Network.responseReceived
+    this.networkResponseHandler = (params: any) => {
+      const entry = this.networkEntries.get(params.requestId);
+      if (entry) {
+        const response: CapturedResponse = {
+          requestId: params.requestId,
+          url: params.response.url,
+          status: params.response.status,
+          statusText: params.response.statusText,
+          headers: params.response.headers || {},
+          mimeType: params.response.mimeType,
+          timing: params.response.timing
+            ? {
+                requestTime: params.response.timing.requestTime,
+                receiveHeadersEnd: params.response.timing.receiveHeadersEnd,
+              }
+            : undefined,
+        };
+        entry.response = response;
+      }
+    };
+
+    // Handler for Network.loadingFinished
+    this.networkLoadingFinishedHandler = (params: any) => {
+      const entry = this.networkEntries.get(params.requestId);
+      if (entry) {
+        entry.completed = true;
+        if (entry.response) {
+          entry.response.bodySize = params.encodedDataLength;
+        }
+      }
+    };
+
+    // Handler for Network.loadingFailed
+    this.networkLoadingFailedHandler = (params: any) => {
+      const entry = this.networkEntries.get(params.requestId);
+      if (entry) {
+        entry.completed = true;
+        entry.error = params.errorText;
+      }
+    };
+
+    // Register handlers
+    cdp.on('Network.requestWillBeSent', this.networkRequestHandler);
+    cdp.on('Network.responseReceived', this.networkResponseHandler);
+    cdp.on('Network.loadingFinished', this.networkLoadingFinishedHandler);
+    cdp.on('Network.loadingFailed', this.networkLoadingFailedHandler);
+  }
+
+  /**
+   * Disable network capture
+   */
+  async disableNetworkCapture(): Promise<void> {
+    if (!this.networkCaptureEnabled) {
+      return;
+    }
+
+    try {
+      const cdp = await this.getCDPSession();
+
+      // Remove handlers
+      if (this.networkRequestHandler) {
+        cdp.off('Network.requestWillBeSent', this.networkRequestHandler);
+      }
+      if (this.networkResponseHandler) {
+        cdp.off('Network.responseReceived', this.networkResponseHandler);
+      }
+      if (this.networkLoadingFinishedHandler) {
+        cdp.off('Network.loadingFinished', this.networkLoadingFinishedHandler);
+      }
+      if (this.networkLoadingFailedHandler) {
+        cdp.off('Network.loadingFailed', this.networkLoadingFailedHandler);
+      }
+
+      await cdp.send('Network.disable');
+    } catch {
+      // Ignore errors during cleanup
+    }
+
+    this.networkCaptureEnabled = false;
+    this.networkRequestHandler = null;
+    this.networkResponseHandler = null;
+    this.networkLoadingFinishedHandler = null;
+    this.networkLoadingFailedHandler = null;
+  }
+
+  /**
+   * Get filtered list of network entries
+   */
+  getNetworkEntries(filters?: NetworkListFilters): NetworkEntry[] {
+    let entries = Array.from(this.networkEntries.values());
+
+    if (filters) {
+      if (filters.url) {
+        const urlPattern = filters.url.toLowerCase();
+        entries = entries.filter((e) => e.request.url.toLowerCase().includes(urlPattern));
+      }
+      if (filters.method) {
+        const method = filters.method.toUpperCase();
+        entries = entries.filter((e) => e.request.method === method);
+      }
+      if (filters.status !== undefined) {
+        entries = entries.filter((e) => e.response?.status === filters.status);
+      }
+      if (filters.resourceType) {
+        const type = filters.resourceType.toLowerCase();
+        entries = entries.filter((e) => e.request.resourceType.toLowerCase() === type);
+      }
+      if (filters.since !== undefined) {
+        entries = entries.filter((e) => e.request.timestamp >= filters.since!);
+      }
+      if (filters.limit !== undefined && filters.limit > 0) {
+        entries = entries.slice(-filters.limit);
+      }
+    }
+
+    return entries;
+  }
+
+  /**
+   * Get a single network entry by request ID
+   */
+  getNetworkEntry(requestId: string): NetworkEntry | undefined {
+    return this.networkEntries.get(requestId);
+  }
+
+  /**
+   * Get response body for a request via CDP
+   */
+  async getResponseBody(requestId: string): Promise<{ body: string; base64Encoded: boolean }> {
+    const entry = this.networkEntries.get(requestId);
+    if (!entry) {
+      throw new Error(`Request not found: ${requestId}`);
+    }
+    if (!entry.completed) {
+      throw new Error(`Request not completed: ${requestId}`);
+    }
+    if (entry.error) {
+      throw new Error(`Request failed: ${entry.error}`);
+    }
+
+    const cdp = await this.getCDPSession();
+    const result = await cdp.send('Network.getResponseBody', { requestId });
+    return {
+      body: result.base64Encoded
+        ? Buffer.from(result.body, 'base64').toString('utf-8')
+        : result.body,
+      base64Encoded: result.base64Encoded,
+    };
+  }
+
+  /**
+   * Search network entries by pattern (in URL, headers, or optionally body)
+   */
+  async searchNetworkEntries(
+    pattern: string,
+    inBody: boolean = false
+  ): Promise<Array<{ entry: NetworkEntry; matches: string[] }>> {
+    const results: Array<{ entry: NetworkEntry; matches: string[] }> = [];
+    const searchPattern = pattern.toLowerCase();
+
+    for (const entry of this.networkEntries.values()) {
+      const matches: string[] = [];
+
+      // Search in URL
+      if (entry.request.url.toLowerCase().includes(searchPattern)) {
+        matches.push(`URL: ${entry.request.url}`);
+      }
+
+      // Search in request headers
+      for (const [key, value] of Object.entries(entry.request.headers)) {
+        if (
+          key.toLowerCase().includes(searchPattern) ||
+          value.toLowerCase().includes(searchPattern)
+        ) {
+          matches.push(`Request header: ${key}: ${value}`);
+        }
+      }
+
+      // Search in response headers
+      if (entry.response) {
+        for (const [key, value] of Object.entries(entry.response.headers)) {
+          if (
+            key.toLowerCase().includes(searchPattern) ||
+            value.toLowerCase().includes(searchPattern)
+          ) {
+            matches.push(`Response header: ${key}: ${value}`);
+          }
+        }
+      }
+
+      // Search in post data
+      if (entry.request.postData?.toLowerCase().includes(searchPattern)) {
+        matches.push(`Post data contains pattern`);
+      }
+
+      // Search in response body if requested and entry is completed
+      if (inBody && entry.completed && !entry.error) {
+        try {
+          const { body } = await this.getResponseBody(entry.request.requestId);
+          if (body.toLowerCase().includes(searchPattern)) {
+            matches.push(`Response body contains pattern`);
+          }
+        } catch {
+          // Skip if body can't be retrieved
+        }
+      }
+
+      if (matches.length > 0) {
+        results.push({ entry, matches });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Make an HTTP request using the browser's cookies and session state
+   * Uses page.evaluate with fetch() to naturally include cookies
+   */
+  async browserFetch(url: string, options?: BrowserFetchOptions): Promise<BrowserFetchResult> {
+    const page = this.getPage();
+
+    const result = await page.evaluate(
+      async ({ url, options }) => {
+        const response = await fetch(url, {
+          method: options?.method || 'GET',
+          headers: options?.headers,
+          body: options?.body,
+          credentials: 'include', // Include cookies
+        });
+
+        const body = await response.text();
+
+        // Convert headers to plain object
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+
+        return {
+          url: response.url,
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+          body,
+        };
+      },
+      { url, options }
+    );
+
+    return result;
+  }
+
+  /**
+   * Clear all captured network entries
+   */
+  clearNetworkEntries(): void {
+    this.networkEntries.clear();
   }
 }

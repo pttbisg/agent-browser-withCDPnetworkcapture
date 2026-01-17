@@ -916,7 +916,15 @@ export type Command =
   | ScreencastStopCommand
   | InputMouseCommand
   | InputKeyboardCommand
-  | InputTouchCommand;
+  | InputTouchCommand
+  | NetworkCaptureStartCommand
+  | NetworkCaptureStopCommand
+  | NetworkListCommand
+  | NetworkGetCommand
+  | NetworkBodyCommand
+  | NetworkSearchCommand
+  | NetworkFetchCommand
+  | NetworkClearCommand;
 
 // Response types
 export interface SuccessResponse<T = unknown> {
@@ -1021,4 +1029,111 @@ export interface BrowserState {
   browser: Browser | null;
   context: BrowserContext | null;
   page: Page | null;
+}
+
+// Network capture types (CDP Network domain)
+export interface CapturedRequest {
+  requestId: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  postData?: string;
+  timestamp: number;
+  resourceType: string;
+  initiator?: {
+    type: string;
+    url?: string;
+    lineNumber?: number;
+  };
+}
+
+export interface CapturedResponse {
+  requestId: string;
+  url: string;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  mimeType: string;
+  timing?: {
+    requestTime: number;
+    receiveHeadersEnd: number;
+  };
+  bodySize?: number;
+}
+
+export interface NetworkEntry {
+  request: CapturedRequest;
+  response?: CapturedResponse;
+  completed: boolean;
+  error?: string;
+}
+
+export interface NetworkListFilters {
+  url?: string;
+  method?: string;
+  status?: number;
+  resourceType?: string;
+  since?: number;
+  limit?: number;
+}
+
+export interface BrowserFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface BrowserFetchResult {
+  url: string;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+// Network capture command types
+export interface NetworkCaptureStartCommand extends BaseCommand {
+  action: 'network_capture_start';
+}
+
+export interface NetworkCaptureStopCommand extends BaseCommand {
+  action: 'network_capture_stop';
+}
+
+export interface NetworkListCommand extends BaseCommand {
+  action: 'network_list';
+  url?: string;
+  method?: string;
+  status?: number;
+  resourceType?: string;
+  since?: number;
+  limit?: number;
+}
+
+export interface NetworkGetCommand extends BaseCommand {
+  action: 'network_get';
+  requestId: string;
+}
+
+export interface NetworkBodyCommand extends BaseCommand {
+  action: 'network_body';
+  requestId: string;
+}
+
+export interface NetworkSearchCommand extends BaseCommand {
+  action: 'network_search';
+  pattern: string;
+  inBody?: boolean;
+}
+
+export interface NetworkFetchCommand extends BaseCommand {
+  action: 'network_fetch';
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface NetworkClearCommand extends BaseCommand {
+  action: 'network_clear';
 }

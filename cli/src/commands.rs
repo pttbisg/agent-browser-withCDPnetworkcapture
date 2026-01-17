@@ -869,8 +869,8 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
 }
 
 fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
-    const VALID: &[&str] = &["route", "unroute", "requests"];
-    
+    const VALID: &[&str] = &["route", "unroute", "requests", "capture", "list", "get", "body", "search", "fetch", "clear"];
+
     match rest.get(0).map(|s| *s) {
         Some("route") => {
             let url = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
@@ -889,13 +889,114 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
             let filter = filter_idx.and_then(|i| rest.get(i + 1).map(|s| *s));
             Ok(json!({ "id": id, "action": "requests", "clear": clear, "filter": filter }))
         }
+        // Network capture commands (CDP Network domain)
+        Some("capture") => {
+            match rest.get(1).map(|s| *s) {
+                Some("start") => Ok(json!({ "id": id, "action": "network_capture_start" })),
+                Some("stop") => Ok(json!({ "id": id, "action": "network_capture_stop" })),
+                Some(sub) => Err(ParseError::UnknownSubcommand {
+                    subcommand: sub.to_string(),
+                    valid_options: &["start", "stop"],
+                }),
+                None => Err(ParseError::MissingArguments {
+                    context: "network capture".to_string(),
+                    usage: "network capture <start|stop>",
+                }),
+            }
+        }
+        Some("list") => {
+            let mut cmd = json!({ "id": id, "action": "network_list" });
+            let obj = cmd.as_object_mut().unwrap();
+
+            // Parse filter options
+            if let Some(idx) = rest.iter().position(|&s| s == "--url") {
+                if let Some(val) = rest.get(idx + 1) {
+                    obj.insert("url".to_string(), json!(val));
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--method") {
+                if let Some(val) = rest.get(idx + 1) {
+                    obj.insert("method".to_string(), json!(val));
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--status") {
+                if let Some(val) = rest.get(idx + 1) {
+                    if let Ok(status) = val.parse::<i32>() {
+                        obj.insert("status".to_string(), json!(status));
+                    }
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--type") {
+                if let Some(val) = rest.get(idx + 1) {
+                    obj.insert("resourceType".to_string(), json!(val));
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--limit") {
+                if let Some(val) = rest.get(idx + 1) {
+                    if let Ok(limit) = val.parse::<i32>() {
+                        obj.insert("limit".to_string(), json!(limit));
+                    }
+                }
+            }
+            Ok(cmd)
+        }
+        Some("get") => {
+            let request_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "network get".to_string(),
+                usage: "network get <requestId>",
+            })?;
+            Ok(json!({ "id": id, "action": "network_get", "requestId": request_id }))
+        }
+        Some("body") => {
+            let request_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "network body".to_string(),
+                usage: "network body <requestId>",
+            })?;
+            Ok(json!({ "id": id, "action": "network_body", "requestId": request_id }))
+        }
+        Some("search") => {
+            let pattern = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "network search".to_string(),
+                usage: "network search <pattern> [--in-body]",
+            })?;
+            let in_body = rest.iter().any(|&s| s == "--in-body");
+            Ok(json!({ "id": id, "action": "network_search", "pattern": pattern, "inBody": in_body }))
+        }
+        Some("fetch") => {
+            let url = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "network fetch".to_string(),
+                usage: "network fetch <url> [--method <method>] [--headers <json>] [--body <data>]",
+            })?;
+            let mut cmd = json!({ "id": id, "action": "network_fetch", "url": url });
+            let obj = cmd.as_object_mut().unwrap();
+
+            if let Some(idx) = rest.iter().position(|&s| s == "--method" || s == "-m") {
+                if let Some(val) = rest.get(idx + 1) {
+                    obj.insert("method".to_string(), json!(val));
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--headers" || s == "-H") {
+                if let Some(val) = rest.get(idx + 1) {
+                    if let Ok(headers) = serde_json::from_str::<serde_json::Value>(val) {
+                        obj.insert("headers".to_string(), headers);
+                    }
+                }
+            }
+            if let Some(idx) = rest.iter().position(|&s| s == "--body" || s == "-d") {
+                if let Some(val) = rest.get(idx + 1) {
+                    obj.insert("body".to_string(), json!(val));
+                }
+            }
+            Ok(cmd)
+        }
+        Some("clear") => Ok(json!({ "id": id, "action": "network_clear" })),
         Some(sub) => Err(ParseError::UnknownSubcommand {
             subcommand: sub.to_string(),
             valid_options: VALID,
         }),
         None => Err(ParseError::MissingArguments {
             context: "network".to_string(),
-            usage: "network <route|unroute|requests> [args...]",
+            usage: "network <capture|list|get|body|search|fetch|clear|route|unroute|requests> [args...]",
         }),
     }
 }

@@ -102,6 +102,14 @@ import type {
   RecordingStartCommand,
   RecordingStopCommand,
   RecordingRestartCommand,
+  NetworkCaptureStartCommand,
+  NetworkCaptureStopCommand,
+  NetworkListCommand,
+  NetworkGetCommand,
+  NetworkBodyCommand,
+  NetworkSearchCommand,
+  NetworkFetchCommand,
+  NetworkClearCommand,
   NavigateData,
   ScreenshotData,
   EvaluateData,
@@ -439,6 +447,22 @@ export async function executeCommand(command: Command, browser: BrowserManager):
         return await handleRecordingStop(command, browser);
       case 'recording_restart':
         return await handleRecordingRestart(command, browser);
+      case 'network_capture_start':
+        return await handleNetworkCaptureStart(command, browser);
+      case 'network_capture_stop':
+        return await handleNetworkCaptureStop(command, browser);
+      case 'network_list':
+        return await handleNetworkList(command, browser);
+      case 'network_get':
+        return await handleNetworkGet(command, browser);
+      case 'network_body':
+        return await handleNetworkBody(command, browser);
+      case 'network_search':
+        return await handleNetworkSearch(command, browser);
+      case 'network_fetch':
+        return await handleNetworkFetch(command, browser);
+      case 'network_clear':
+        return await handleNetworkClear(command, browser);
       default: {
         // TypeScript narrows to never here, but we handle it for safety
         const unknownCommand = command as { id: string; action: string };
@@ -1930,5 +1954,154 @@ async function handleRecordingRestart(
     path: command.path,
     previousPath: result.previousPath,
     stopped: result.stopped,
+  });
+}
+
+// Network capture handlers (CDP Network domain)
+
+async function handleNetworkCaptureStart(
+  command: NetworkCaptureStartCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  await browser.enableNetworkCapture();
+  return successResponse(command.id, {
+    enabled: true,
+    message: 'Network capture enabled. Traffic will be captured.',
+  });
+}
+
+async function handleNetworkCaptureStop(
+  command: NetworkCaptureStopCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  await browser.disableNetworkCapture();
+  return successResponse(command.id, {
+    disabled: true,
+    message: 'Network capture disabled.',
+  });
+}
+
+async function handleNetworkList(
+  command: NetworkListCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  if (!browser.isNetworkCaptureEnabled()) {
+    return successResponse(command.id, {
+      entries: [],
+      message: 'Network capture not enabled. Run network_capture_start first.',
+    });
+  }
+
+  const entries = browser.getNetworkEntries({
+    url: command.url,
+    method: command.method,
+    status: command.status,
+    resourceType: command.resourceType,
+    since: command.since,
+    limit: command.limit,
+  });
+
+  // Convert to a simplified format for output
+  const simplified = entries.map((entry) => ({
+    requestId: entry.request.requestId,
+    method: entry.request.method,
+    url: entry.request.url,
+    status: entry.response?.status,
+    statusText: entry.response?.statusText,
+    mimeType: entry.response?.mimeType,
+    resourceType: entry.request.resourceType,
+    timestamp: entry.request.timestamp,
+    completed: entry.completed,
+    error: entry.error,
+  }));
+
+  return successResponse(command.id, {
+    count: simplified.length,
+    entries: simplified,
+  });
+}
+
+async function handleNetworkGet(
+  command: NetworkGetCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  const entry = browser.getNetworkEntry(command.requestId);
+  if (!entry) {
+    return errorResponse(command.id, `Request not found: ${command.requestId}`);
+  }
+
+  return successResponse(command.id, {
+    request: entry.request,
+    response: entry.response,
+    completed: entry.completed,
+    error: entry.error,
+  });
+}
+
+async function handleNetworkBody(
+  command: NetworkBodyCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  try {
+    const { body, base64Encoded } = await browser.getResponseBody(command.requestId);
+    return successResponse(command.id, {
+      requestId: command.requestId,
+      body,
+      base64Encoded,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleNetworkSearch(
+  command: NetworkSearchCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  if (!browser.isNetworkCaptureEnabled()) {
+    return successResponse(command.id, {
+      results: [],
+      message: 'Network capture not enabled. Run network_capture_start first.',
+    });
+  }
+
+  const results = await browser.searchNetworkEntries(command.pattern, command.inBody);
+
+  const simplified = results.map(({ entry, matches }) => ({
+    requestId: entry.request.requestId,
+    method: entry.request.method,
+    url: entry.request.url,
+    status: entry.response?.status,
+    matches,
+  }));
+
+  return successResponse(command.id, {
+    count: simplified.length,
+    results: simplified,
+  });
+}
+
+async function handleNetworkFetch(
+  command: NetworkFetchCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  const result = await browser.browserFetch(command.url, {
+    method: command.method,
+    headers: command.headers,
+    body: command.body,
+  });
+
+  return successResponse(command.id, result);
+}
+
+async function handleNetworkClear(
+  command: NetworkClearCommand,
+  browser: BrowserManager
+): Promise<Response> {
+  browser.clearNetworkEntries();
+  return successResponse(command.id, {
+    cleared: true,
+    message: 'Network entries cleared.',
   });
 }

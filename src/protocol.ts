@@ -662,6 +662,53 @@ const inputTouchSchema = baseCommandSchema.extend({
   modifiers: z.number().optional(),
 });
 
+// Network capture schemas (CDP Network domain)
+const networkCaptureStartSchema = baseCommandSchema.extend({
+  action: z.literal('network_capture_start'),
+});
+
+const networkCaptureStopSchema = baseCommandSchema.extend({
+  action: z.literal('network_capture_stop'),
+});
+
+const networkListSchema = baseCommandSchema.extend({
+  action: z.literal('network_list'),
+  url: z.string().optional(),
+  method: z.string().optional(),
+  status: z.number().optional(),
+  resourceType: z.string().optional(),
+  since: z.number().optional(),
+  limit: z.number().positive().optional(),
+});
+
+const networkGetSchema = baseCommandSchema.extend({
+  action: z.literal('network_get'),
+  requestId: z.string().min(1),
+});
+
+const networkBodySchema = baseCommandSchema.extend({
+  action: z.literal('network_body'),
+  requestId: z.string().min(1),
+});
+
+const networkSearchSchema = baseCommandSchema.extend({
+  action: z.literal('network_search'),
+  pattern: z.string().min(1),
+  inBody: z.boolean().optional(),
+});
+
+const networkFetchSchema = baseCommandSchema.extend({
+  action: z.literal('network_fetch'),
+  url: z.string().min(1),
+  method: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  body: z.string().optional(),
+});
+
+const networkClearSchema = baseCommandSchema.extend({
+  action: z.literal('network_clear'),
+});
+
 const pressSchema = baseCommandSchema.extend({
   action: z.literal('press'),
   key: z.string().min(1),
@@ -880,6 +927,14 @@ const commandSchema = z.discriminatedUnion('action', [
   inputMouseSchema,
   inputKeyboardSchema,
   inputTouchSchema,
+  networkCaptureStartSchema,
+  networkCaptureStopSchema,
+  networkListSchema,
+  networkGetSchema,
+  networkBodySchema,
+  networkSearchSchema,
+  networkFetchSchema,
+  networkClearSchema,
 ]);
 
 // Parse result type
