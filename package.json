@@ -1,7 +1,7 @@
 {
-  "name": "agent-browser",
+  "name": "agent-browser-cdpnetwork",
   "version": "0.5.0",
-  "description": "Headless browser automation CLI for AI agents",
+  "description": "Headless browser automation CLI for AI agents with CDP network capture",
   "type": "module",
   "main": "dist/daemon.js",
   "files": [
@@ -45,12 +45,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/agent-browser.git"
+    "url": "git+https://github.com/pttbisg/agent-browser-withCDPnetworkcapture.git"
   },
   "bugs": {
-    "url": "https://github.com/vercel-labs/agent-browser/issues"
+    "url": "https://github.com/pttbisg/agent-browser-withCDPnetworkcapture/issues"
   },
-  "homepage": "https://github.com/vercel-labs/agent-browser#readme",
+  "homepage": "https://github.com/pttbisg/agent-browser-withCDPnetworkcapture#readme",
   "dependencies": {
     "playwright-core": "^1.57.0",
     "ws": "^8.19.0",
