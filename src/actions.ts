@@ -1,5 +1,11 @@
 import type { Page, Frame } from 'playwright-core';
 import type { BrowserManager, ScreencastFrame } from './browser.js';
+import {
+  truncateResponseBody,
+  truncateNetworkEntry,
+  truncateHeaders,
+  truncateString,
+} from './utils/truncate.js';
 import type {
   Command,
   Response,
@@ -2002,7 +2008,7 @@ async function handleNetworkList(
   });
 
   // Convert to a simplified format for output
-  const simplified = entries.map((entry) => ({
+  let simplified = entries.map((entry) => ({
     requestId: entry.request.requestId,
     method: entry.request.method,
     url: entry.request.url,
@@ -2015,10 +2021,23 @@ async function handleNetworkList(
     error: entry.error,
   }));
 
-  return successResponse(command.id, {
+  // Apply truncation unless --full is specified
+  if (!command.full) {
+    const maxStringLength = command.truncateJsonValues ?? 500;
+    simplified = simplified.map((entry) => truncateNetworkEntry(entry, { maxStringLength }));
+  }
+
+  const responseData: Record<string, unknown> = {
     count: simplified.length,
     entries: simplified,
-  });
+  };
+
+  // Add truncation metadata when truncation is active
+  if (!command.full) {
+    responseData.truncated = true;
+  }
+
+  return successResponse(command.id, responseData);
 }
 
 async function handleNetworkGet(
@@ -2028,6 +2047,32 @@ async function handleNetworkGet(
   const entry = browser.getNetworkEntry(command.requestId);
   if (!entry) {
     return errorResponse(command.id, `Request not found: ${command.requestId}`);
+  }
+
+  // Apply truncation unless --full is specified
+  if (!command.full) {
+    const maxStringLength = command.truncateJsonValues ?? 500;
+    const truncatedRequest = {
+      ...entry.request,
+      headers: truncateHeaders(entry.request.headers, { maxStringLength }),
+      postData: entry.request.postData
+        ? truncateString(entry.request.postData, maxStringLength).value
+        : undefined,
+    };
+    const truncatedResponse = entry.response
+      ? {
+          ...entry.response,
+          headers: truncateHeaders(entry.response.headers, { maxStringLength }),
+        }
+      : undefined;
+
+    return successResponse(command.id, {
+      request: truncatedRequest,
+      response: truncatedResponse,
+      completed: entry.completed,
+      error: entry.error,
+      truncated: true,
+    });
   }
 
   return successResponse(command.id, {
@@ -2044,6 +2089,22 @@ async function handleNetworkBody(
 ): Promise<Response> {
   try {
     const { body, base64Encoded } = await browser.getResponseBody(command.requestId);
+
+    // Apply truncation unless --full is specified
+    if (!command.full) {
+      const maxStringLength = command.truncateJsonValues ?? 500;
+      const result = truncateResponseBody(body, base64Encoded, { maxStringLength });
+
+      return successResponse(command.id, {
+        requestId: command.requestId,
+        body: result.body,
+        base64Encoded: result.type === 'binary' ? false : base64Encoded,
+        truncated: result.truncated,
+        originalLength: result.originalLength,
+        contentType: result.type,
+      });
+    }
+
     return successResponse(command.id, {
       requestId: command.requestId,
       body,
@@ -2067,19 +2128,35 @@ async function handleNetworkSearch(
   }
 
   const results = await browser.searchNetworkEntries(command.pattern, command.inBody);
+  const maxStringLength = command.truncateJsonValues ?? 500;
 
-  const simplified = results.map(({ entry, matches }) => ({
-    requestId: entry.request.requestId,
-    method: entry.request.method,
-    url: entry.request.url,
-    status: entry.response?.status,
-    matches,
-  }));
+  const simplified = results.map(({ entry, matches }) => {
+    // Apply truncation unless --full is specified
+    const processedMatches = !command.full
+      ? matches.map((m) => truncateString(m, maxStringLength).value)
+      : matches;
 
-  return successResponse(command.id, {
+    return {
+      requestId: entry.request.requestId,
+      method: entry.request.method,
+      url: !command.full
+        ? truncateString(entry.request.url, maxStringLength).value
+        : entry.request.url,
+      status: entry.response?.status,
+      matches: processedMatches,
+    };
+  });
+
+  const responseData: Record<string, unknown> = {
     count: simplified.length,
     results: simplified,
-  });
+  };
+
+  if (!command.full) {
+    responseData.truncated = true;
+  }
+
+  return successResponse(command.id, responseData);
 }
 
 async function handleNetworkFetch(
@@ -2091,6 +2168,26 @@ async function handleNetworkFetch(
     headers: command.headers,
     body: command.body,
   });
+
+  // Apply truncation unless --full is specified
+  if (!command.full) {
+    const maxStringLength = command.truncateJsonValues ?? 500;
+
+    // Truncate response body
+    const bodyResult = truncateResponseBody(result.body, false, { maxStringLength });
+
+    // Truncate headers
+    const truncatedHeaders = truncateHeaders(result.headers, { maxStringLength });
+
+    return successResponse(command.id, {
+      ...result,
+      body: bodyResult.body,
+      headers: truncatedHeaders,
+      truncated: bodyResult.truncated,
+      originalLength: bodyResult.originalLength,
+      contentType: bodyResult.type,
+    });
+  }
 
   return successResponse(command.id, result);
 }

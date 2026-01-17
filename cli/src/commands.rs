@@ -339,7 +339,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         "set" => parse_set(&rest, &id),
 
         // === Network ===
-        "network" => parse_network(&rest, &id),
+        "network" => parse_network(&rest, &id, flags),
 
         // === Storage ===
         "storage" => parse_storage(&rest, &id),
@@ -868,8 +868,18 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
     }
 }
 
-fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
+fn parse_network(rest: &[&str], id: &str, flags: &Flags) -> Result<Value, ParseError> {
     const VALID: &[&str] = &["route", "unroute", "requests", "capture", "list", "get", "body", "search", "fetch", "clear"];
+
+    // Helper to add truncation flags to a command object
+    fn add_truncation_flags(obj: &mut serde_json::Map<String, Value>, flags: &Flags) {
+        if flags.full {
+            obj.insert("full".to_string(), json!(true));
+        }
+        if let Some(n) = flags.truncate_json_values {
+            obj.insert("truncateJsonValues".to_string(), json!(n));
+        }
+    }
 
     match rest.get(0).map(|s| *s) {
         Some("route") => {
@@ -938,6 +948,8 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                     }
                 }
             }
+            // Add truncation flags
+            add_truncation_flags(obj, flags);
             Ok(cmd)
         }
         Some("get") => {
@@ -945,14 +957,18 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 context: "network get".to_string(),
                 usage: "network get <requestId>",
             })?;
-            Ok(json!({ "id": id, "action": "network_get", "requestId": request_id }))
+            let mut cmd = json!({ "id": id, "action": "network_get", "requestId": request_id });
+            add_truncation_flags(cmd.as_object_mut().unwrap(), flags);
+            Ok(cmd)
         }
         Some("body") => {
             let request_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "network body".to_string(),
                 usage: "network body <requestId>",
             })?;
-            Ok(json!({ "id": id, "action": "network_body", "requestId": request_id }))
+            let mut cmd = json!({ "id": id, "action": "network_body", "requestId": request_id });
+            add_truncation_flags(cmd.as_object_mut().unwrap(), flags);
+            Ok(cmd)
         }
         Some("search") => {
             let pattern = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
@@ -960,7 +976,9 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 usage: "network search <pattern> [--in-body]",
             })?;
             let in_body = rest.iter().any(|&s| s == "--in-body");
-            Ok(json!({ "id": id, "action": "network_search", "pattern": pattern, "inBody": in_body }))
+            let mut cmd = json!({ "id": id, "action": "network_search", "pattern": pattern, "inBody": in_body });
+            add_truncation_flags(cmd.as_object_mut().unwrap(), flags);
+            Ok(cmd)
         }
         Some("fetch") => {
             let url = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
@@ -987,6 +1005,8 @@ fn parse_network(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                     obj.insert("body".to_string(), json!(val));
                 }
             }
+            // Add truncation flags
+            add_truncation_flags(obj, flags);
             Ok(cmd)
         }
         Some("clear") => Ok(json!({ "id": id, "action": "network_clear" })),
@@ -1059,6 +1079,7 @@ mod tests {
             extensions: Vec::new(),
             cdp: None,
             proxy: None,
+            truncate_json_values: None,
         }
     }
 

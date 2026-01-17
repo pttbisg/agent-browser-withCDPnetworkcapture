@@ -180,6 +180,22 @@ agent-browser storage session         # Same for sessionStorage
 ### Network
 
 ```bash
+# CDP Network Capture (full traffic with response bodies)
+agent-browser network capture start           # Enable capture
+agent-browser network capture stop            # Disable capture
+agent-browser network list                    # List captured traffic
+agent-browser network list --url "api"        # Filter by URL pattern
+agent-browser network get <requestId>         # Get request/response details
+agent-browser network body <requestId>        # Get response body
+agent-browser network search "pattern"        # Search traffic
+agent-browser network fetch <url>             # Make request with browser session
+agent-browser network clear                   # Clear captured traffic
+
+# Truncation options (reduce output for LLM agents)
+agent-browser network list --truncatejsonvalues 200  # Custom truncation threshold
+agent-browser network body <id> --full               # Full untruncated data
+
+# Playwright Interception (for mocking/blocking)
 agent-browser network route <url>              # Intercept requests
 agent-browser network route <url> --abort      # Block requests
 agent-browser network route <url> --body <json>  # Mock response
@@ -298,7 +314,8 @@ agent-browser snapshot -i -c -d 5         # Combine options
 | `--headers <json>` | Set HTTP headers scoped to the URL's origin |
 | `--executable-path <path>` | Custom browser executable (or `AGENT_BROWSER_EXECUTABLE_PATH` env) |
 | `--json` | JSON output (for agents) |
-| `--full, -f` | Full page screenshot |
+| `--full, -f` | Full page screenshot / full untruncated network data |
+| `--truncatejsonvalues <n>` | Truncate JSON string values to n chars (default: 500) |
 | `--name, -n` | Locator name filter |
 | `--exact` | Exact text match |
 | `--headed` | Show browser window (not headless) |

@@ -1108,22 +1108,30 @@ export interface NetworkListCommand extends BaseCommand {
   resourceType?: string;
   since?: number;
   limit?: number;
+  full?: boolean;
+  truncateJsonValues?: number;
 }
 
 export interface NetworkGetCommand extends BaseCommand {
   action: 'network_get';
   requestId: string;
+  full?: boolean;
+  truncateJsonValues?: number;
 }
 
 export interface NetworkBodyCommand extends BaseCommand {
   action: 'network_body';
   requestId: string;
+  full?: boolean;
+  truncateJsonValues?: number;
 }
 
 export interface NetworkSearchCommand extends BaseCommand {
   action: 'network_search';
   pattern: string;
   inBody?: boolean;
+  full?: boolean;
+  truncateJsonValues?: number;
 }
 
 export interface NetworkFetchCommand extends BaseCommand {
@@ -1132,6 +1140,8 @@ export interface NetworkFetchCommand extends BaseCommand {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  full?: boolean;
+  truncateJsonValues?: number;
 }
 
 export interface NetworkClearCommand extends BaseCommand {

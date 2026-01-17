@@ -50,10 +50,13 @@ pub fn print_response(resp: &Response, json_mode: bool) {
             println!("{}", value);
             return;
         }
-        // Count
+        // Count (but not if it's part of network list/search which have their own handlers)
         if let Some(count) = data.get("count").and_then(|v| v.as_i64()) {
-            println!("{}", count);
-            return;
+            // Skip if this is a network list (has "entries") or network search (has "results")
+            if data.get("entries").is_none() && data.get("results").is_none() {
+                println!("{}", count);
+                return;
+            }
         }
         // Boolean results
         if let Some(visible) = data.get("visible").and_then(|v| v.as_bool()) {
@@ -232,6 +235,10 @@ pub fn print_response(resp: &Response, json_mode: bool) {
                 println!("\x1b[2m{}\x1b[0m {} \x1b[1m{:7}\x1b[0m {} \x1b[2m[{}]\x1b[0m",
                     request_id, status_str, method, display_url, resource_type);
             }
+            // Show truncation notice if data was truncated
+            if data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("\x1b[2m(Truncated. Use --full for complete data)\x1b[0m");
+            }
             return;
         }
         // Network get (request details)
@@ -269,11 +276,23 @@ pub fn print_response(resp: &Response, json_mode: bool) {
                     }
                 }
             }
+            // Show truncation notice if data was truncated
+            if data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("\n\x1b[2m(Truncated. Use --full for complete data)\x1b[0m");
+            }
             return;
         }
         // Network body
         if let Some(body) = data.get("body").and_then(|v| v.as_str()) {
             println!("{}", body);
+            // Show truncation notice and content type info if data was truncated
+            if data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if let Some(original_length) = data.get("originalLength").and_then(|v| v.as_i64()) {
+                    println!("\n\x1b[2m(Truncated from {} bytes. Use --full for complete data)\x1b[0m", original_length);
+                } else {
+                    println!("\n\x1b[2m(Truncated. Use --full for complete data)\x1b[0m");
+                }
+            }
             return;
         }
         // Network search results
@@ -299,6 +318,10 @@ pub fn print_response(resp: &Response, json_mode: bool) {
                     }
                 }
             }
+            // Show truncation notice if data was truncated
+            if data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("\x1b[2m(Truncated. Use --full for complete data)\x1b[0m");
+            }
             return;
         }
         // Network fetch result (has status and statusText)
@@ -322,6 +345,14 @@ pub fn print_response(resp: &Response, json_mode: bool) {
             println!();
             if let Some(body) = data.get("body").and_then(|v| v.as_str()) {
                 println!("{}", body);
+            }
+            // Show truncation notice if data was truncated
+            if data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if let Some(original_length) = data.get("originalLength").and_then(|v| v.as_i64()) {
+                    println!("\n\x1b[2m(Truncated from {} bytes. Use --full for complete data)\x1b[0m", original_length);
+                } else {
+                    println!("\n\x1b[2m(Truncated. Use --full for complete data)\x1b[0m");
+                }
             }
             return;
         }
@@ -994,6 +1025,11 @@ CDP Network Capture (full traffic with response bodies):
     --body, -d <data>        Request body
   clear                      Clear captured traffic
 
+Token-Saving Options (for LLM agents):
+  By default, JSON string values are truncated to 500 chars to save tokens.
+  --full                     Return complete untruncated data
+  --truncatejsonvalues <n>   Custom truncation threshold (default: 500)
+
 Playwright Interception (for mocking/blocking):
   route <url> [options]      Intercept requests matching URL pattern
     --abort                  Abort matching requests
@@ -1020,6 +1056,11 @@ Examples:
   agent-browser network fetch https://api.example.com/data -m POST -d '{"query":"test"}'
   agent-browser network clear
   agent-browser network capture stop
+
+  # Token-saving truncation
+  agent-browser network body 12345.1                    # Default: truncated to 500 chars
+  agent-browser network body 12345.1 --full             # Full untruncated data
+  agent-browser network list --truncatejsonvalues 200   # Custom threshold
 
   # Playwright interception (mocking)
   agent-browser network route "**/api/*" --abort
@@ -1454,7 +1495,8 @@ Options:
   --extension <path>         Load browser extensions (repeatable).
   --proxy <url>              Proxy server (http://[user:pass@]host:port)
   --json                     JSON output
-  --full, -f                 Full page screenshot
+  --full, -f                 Full page screenshot / disable network truncation
+  --truncatejsonvalues <n>   Set truncation limit (network cmds truncate to 500 by default)
   --headed                   Show browser window (not headless)
   --cdp <port>               Connect via CDP (Chrome DevTools Protocol)
   --debug                    Debug output

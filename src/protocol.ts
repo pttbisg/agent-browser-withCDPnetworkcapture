@@ -679,22 +679,30 @@ const networkListSchema = baseCommandSchema.extend({
   resourceType: z.string().optional(),
   since: z.number().optional(),
   limit: z.number().positive().optional(),
+  full: z.boolean().optional(),
+  truncateJsonValues: z.number().positive().optional(),
 });
 
 const networkGetSchema = baseCommandSchema.extend({
   action: z.literal('network_get'),
   requestId: z.string().min(1),
+  full: z.boolean().optional(),
+  truncateJsonValues: z.number().positive().optional(),
 });
 
 const networkBodySchema = baseCommandSchema.extend({
   action: z.literal('network_body'),
   requestId: z.string().min(1),
+  full: z.boolean().optional(),
+  truncateJsonValues: z.number().positive().optional(),
 });
 
 const networkSearchSchema = baseCommandSchema.extend({
   action: z.literal('network_search'),
   pattern: z.string().min(1),
   inBody: z.boolean().optional(),
+  full: z.boolean().optional(),
+  truncateJsonValues: z.number().positive().optional(),
 });
 
 const networkFetchSchema = baseCommandSchema.extend({
@@ -703,6 +711,8 @@ const networkFetchSchema = baseCommandSchema.extend({
   method: z.string().optional(),
   headers: z.record(z.string()).optional(),
   body: z.string().optional(),
+  full: z.boolean().optional(),
+  truncateJsonValues: z.number().positive().optional(),
 });
 
 const networkClearSchema = baseCommandSchema.extend({

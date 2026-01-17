@@ -11,6 +11,7 @@ pub struct Flags {
     pub cdp: Option<String>,
     pub extensions: Vec<String>,
     pub proxy: Option<String>,
+    pub truncate_json_values: Option<u32>,
 }
 
 pub fn parse_flags(args: &[String]) -> Flags {
@@ -30,6 +31,7 @@ pub fn parse_flags(args: &[String]) -> Flags {
         cdp: None,
         extensions: extensions_env,
         proxy: None,
+        truncate_json_values: None,
     };
 
     let mut i = 0;
@@ -75,6 +77,14 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     i += 1;
                 }
             }
+            "--truncatejsonvalues" => {
+                if let Some(n) = args.get(i + 1) {
+                    if let Ok(val) = n.parse::<u32>() {
+                        flags.truncate_json_values = Some(val);
+                        i += 1;
+                    }
+                }
+            }
             _ => {}
         }
         i += 1;
@@ -89,7 +99,7 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
     // Global flags that should be stripped from command args
     const GLOBAL_FLAGS: &[&str] = &["--json", "--full", "--headed", "--debug"];
     // Global flags that take a value (need to skip the next arg too)
-    const GLOBAL_FLAGS_WITH_VALUE: &[&str] = &["--session", "--headers", "--executable-path", "--cdp", "--extension", "--proxy"];
+    const GLOBAL_FLAGS_WITH_VALUE: &[&str] = &["--session", "--headers", "--executable-path", "--cdp", "--extension", "--proxy", "--truncatejsonvalues"];
 
     for arg in args.iter() {
         if skip_next {
