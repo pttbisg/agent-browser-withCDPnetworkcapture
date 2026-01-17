@@ -1493,12 +1493,34 @@ export class BrowserManager {
     };
 
     // Handler for Network.loadingFinished
-    this.networkLoadingFinishedHandler = (params: any) => {
+    // Uses async to buffer small text responses for reliable retrieval after navigation
+    this.networkLoadingFinishedHandler = async (params: any) => {
       const entry = this.networkEntries.get(params.requestId);
       if (entry) {
         entry.completed = true;
         if (entry.response) {
           entry.response.bodySize = params.encodedDataLength;
+
+          // Buffer small text-based responses (< 1MB) for reliable retrieval
+          const MAX_BUFFER_SIZE = 1_000_000; // 1MB limit
+          const mimeType = entry.response.mimeType || '';
+          const isTextual =
+            /^(application\/json|text\/|application\/xml|application\/javascript|application\/x-www-form-urlencoded)/.test(
+              mimeType
+            );
+          const isSmall = params.encodedDataLength < MAX_BUFFER_SIZE;
+
+          if (isTextual && isSmall) {
+            try {
+              const result = await cdp.send('Network.getResponseBody', {
+                requestId: params.requestId,
+              });
+              entry.response.body = result.body;
+              entry.response.base64Encoded = result.base64Encoded;
+            } catch {
+              // Body already GC'd by Chrome, that's fine - will fall back to CDP on retrieval
+            }
+          }
         }
       }
     };
@@ -1597,7 +1619,7 @@ export class BrowserManager {
   }
 
   /**
-   * Get response body for a request via CDP
+   * Get response body for a request - uses buffered body if available, otherwise CDP
    */
   async getResponseBody(requestId: string): Promise<{ body: string; base64Encoded: boolean }> {
     const entry = this.networkEntries.get(requestId);
@@ -1611,14 +1633,39 @@ export class BrowserManager {
       throw new Error(`Request failed: ${entry.error}`);
     }
 
-    const cdp = await this.getCDPSession();
-    const result = await cdp.send('Network.getResponseBody', { requestId });
-    return {
-      body: result.base64Encoded
-        ? Buffer.from(result.body, 'base64').toString('utf-8')
-        : result.body,
-      base64Encoded: result.base64Encoded,
-    };
+    // Use buffered body if available (small text responses are buffered on capture)
+    if (entry.response?.body !== undefined) {
+      const body = entry.response.base64Encoded
+        ? Buffer.from(entry.response.body, 'base64').toString('utf-8')
+        : entry.response.body;
+      return { body, base64Encoded: entry.response.base64Encoded ?? false };
+    }
+
+    // Fall back to CDP for non-buffered responses (large or binary)
+    try {
+      const cdp = await this.getCDPSession();
+      const result = await cdp.send('Network.getResponseBody', { requestId });
+      return {
+        body: result.base64Encoded
+          ? Buffer.from(result.body, 'base64').toString('utf-8')
+          : result.body,
+        base64Encoded: result.base64Encoded,
+      };
+    } catch (error: any) {
+      // Provide a more helpful error message
+      const mimeType = entry.response?.mimeType || 'unknown';
+      const bodySize = entry.response?.bodySize ?? 0;
+      const reason =
+        bodySize > 1_000_000
+          ? `Body too large to buffer (${(bodySize / 1_000_000).toFixed(1)}MB)`
+          : !mimeType.match(/^(application\/json|text\/|application\/xml|application\/javascript)/)
+            ? `Binary content type (${mimeType}) not buffered`
+            : 'Browser cleared response from cache after navigation';
+      throw new Error(
+        `Response body unavailable for ${requestId}: ${reason}. ` +
+          `Tip: Fetch bodies immediately after requests complete, before navigating away.`
+      );
+    }
   }
 
   /**

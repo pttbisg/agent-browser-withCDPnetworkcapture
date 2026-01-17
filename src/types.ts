@@ -1059,6 +1059,10 @@ export interface CapturedResponse {
     receiveHeadersEnd: number;
   };
   bodySize?: number;
+  /** Buffered response body (only for small text-based responses) */
+  body?: string;
+  /** Whether the buffered body is base64 encoded */
+  base64Encoded?: boolean;
 }
 
 export interface NetworkEntry {

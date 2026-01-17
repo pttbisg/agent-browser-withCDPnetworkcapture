@@ -1016,7 +1016,7 @@ CDP Network Capture (full traffic with response bodies):
     --type <type>            Filter by resource type
     --limit <n>              Limit results
   get <requestId>            Get full details for a request
-  body <requestId>           Get response body for a request
+  body <requestId>           Get response body (text <1MB auto-buffered)
   search <pattern>           Search traffic by pattern
     --in-body                Also search in response bodies
   fetch <url> [options]      Make request using browser's session/cookies
@@ -1024,6 +1024,10 @@ CDP Network Capture (full traffic with response bodies):
     --headers, -H <json>     Request headers as JSON
     --body, -d <data>        Request body
   clear                      Clear captured traffic
+
+  Note: Text responses (JSON, HTML, etc.) under 1MB are auto-buffered and remain
+  available after navigation. Binary responses (images, videos) must be fetched
+  before navigating away.
 
 Token-Saving Options (for LLM agents):
   By default, JSON string values are truncated to 500 chars to save tokens.
@@ -1451,7 +1455,7 @@ Network:  agent-browser network <action>
   capture start|stop         Enable/disable CDP traffic capture
   list [--url|--method|...]  List captured traffic with filters
   get <requestId>            Get full request/response details
-  body <requestId>           Get response body
+  body <requestId>           Get response body (text <1MB auto-buffered)
   search <pattern>           Search traffic
   fetch <url> [opts]         Make request with browser session
   clear                      Clear captured traffic
